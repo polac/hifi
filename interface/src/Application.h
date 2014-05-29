@@ -28,6 +28,7 @@
 #include <QHash>
 #include <QTouchEvent>
 #include <QUndoStack>
+#include <QSystemTrayIcon>
 
 #include <ModelEditPacketSender.h>
 #include <NetworkPacket.h>
@@ -82,6 +83,7 @@
 #include "ui/LogDialog.h"
 #include "ui/UpdateDialog.h"
 #include "ui/overlays/Overlays.h"
+#include "ui/ApplicationOverlay.h"
 #include "ui/RunningScriptsWidget.h"
 #include "voxels/VoxelFade.h"
 #include "voxels/VoxelHideShowThread.h"
@@ -114,6 +116,15 @@ static const QString CUSTOM_URL_SCHEME = "hifi:";
 
 static const float BILLBOARD_FIELD_OF_VIEW = 30.0f; // degrees
 static const float BILLBOARD_DISTANCE = 5.0f;       // meters
+
+static const int MIRROR_VIEW_TOP_PADDING = 5;
+static const int MIRROR_VIEW_LEFT_PADDING = 10;
+static const int MIRROR_VIEW_WIDTH = 265;
+static const int MIRROR_VIEW_HEIGHT = 215;
+static const float MIRROR_FULLSCREEN_DISTANCE = 0.35f;
+static const float MIRROR_REARVIEW_DISTANCE = 0.65f;
+static const float MIRROR_REARVIEW_BODY_DISTANCE = 2.3f;
+static const float MIRROR_FIELD_OF_VIEW = 30.0f;
 
 class Application : public QApplication {
     Q_OBJECT
@@ -181,6 +192,7 @@ public:
     ViewFrustum* getShadowViewFrustum() { return &_shadowViewFrustum; }
     VoxelSystem* getVoxels() { return &_voxels; }
     VoxelTree* getVoxelTree() { return _voxels.getTree(); }
+    const VoxelPacketProcessor& getVoxelPacketProcessor() const { return _voxelProcessor; }
     ParticleTreeRenderer* getParticles() { return &_particles; }
     MetavoxelSystem* getMetavoxels() { return &_metavoxels; }
     ModelTreeRenderer* getModels() { return &_models; }
@@ -203,6 +215,14 @@ public:
     JoystickManager* getJoystickManager() { return &_joystickManager; }
     BandwidthMeter* getBandwidthMeter() { return &_bandwidthMeter; }
     QUndoStack* getUndoStack() { return &_undoStack; }
+    QSystemTrayIcon* getTrayIcon() { return _trayIcon; }
+    ApplicationOverlay& getApplicationOverlay() { return _applicationOverlay; }
+    Overlays& getOverlays() { return _overlays; }
+
+    float getFps() const { return _fps; }
+    float getPacketsPerSecond() const { return _packetsPerSecond; }
+    float getBytesPerSecond() const { return _bytesPerSecond; }
+    const glm::vec3& getViewMatrixTranslation() const { return _viewMatrixTranslation; }
 
     /// if you need to access the application settings, use lockSettings()/unlockSettings()
     QSettings* lockSettings() { _settingsMutex.lock(); return _settings; }
@@ -217,6 +237,7 @@ public:
 
     QNetworkAccessManager* getNetworkAccessManager() { return _networkAccessManager; }
     GeometryCache* getGeometryCache() { return &_geometryCache; }
+    AnimationCache* getAnimationCache() { return &_animationCache; }
     TextureCache* getTextureCache() { return &_textureCache; }
     GlowEffect* getGlowEffect() { return &_glowEffect; }
     ControllerScriptingInterface* getControllerScriptingInterface() { return &_controllerScriptingInterface; }
@@ -374,7 +395,6 @@ private:
     glm::vec3 getSunDirection();
 
     void updateShadowMap();
-    void displayOverlay();
     void renderRearViewMirror(const QRect& region, bool billboard = false);
     void renderViewFrustum(ViewFrustum& viewFrustum);
 
@@ -466,7 +486,7 @@ private:
     glm::mat4 _untranslatedViewMatrix;
     glm::vec3 _viewMatrixTranslation;
     glm::mat4 _projectionMatrix;
-    
+
     float _scaleMirror;
     float _rotateMirror;
     float _raiseMirror;
@@ -532,6 +552,7 @@ private:
     NodeBounds _nodeBoundsDisplay;
 
     std::vector<VoxelFade> _voxelFades;
+    QReadWriteLock _voxelFadesLock;
     ControllerScriptingInterface _controllerScriptingInterface;
     QPointer<LogDialog> _logDialog;
     QPointer<SnapshotShareDialog> _snapshotShareDialog;
@@ -548,11 +569,14 @@ private:
     TouchEvent _lastTouchEvent;
 
     Overlays _overlays;
+    ApplicationOverlay _applicationOverlay;
 
     AudioReflector _audioReflector;
     RunningScriptsWidget* _runningScriptsWidget;
     QHash<QString, ScriptEngine*> _scriptEnginesHash;
     bool _runningScriptsWidgetWasVisible;
+
+    QSystemTrayIcon* _trayIcon;
 };
 
 #endif // hifi_Application_h

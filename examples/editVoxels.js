@@ -28,7 +28,7 @@ var NEW_VOXEL_SIZE = 1.0;
 var NEW_VOXEL_DISTANCE_FROM_CAMERA = 3.0;
 var PIXELS_PER_EXTRUDE_VOXEL = 16;
 var WHEEL_PIXELS_PER_SCALE_CHANGE = 100;
-var MAX_VOXEL_SCALE = 1.0;
+var MAX_VOXEL_SCALE = 16.0;
 var MIN_VOXEL_SCALE = 1.0 / Math.pow(2.0, 8.0);
 var WHITE_COLOR = { red: 255, green: 255, blue: 255 };
 
@@ -394,6 +394,9 @@ function ScaleSelector() {
         if (this.power < 13) {
             ++this.power;
             this.scale *= 2.0;
+            if (this.scale > MAX_VOXEL_SCALE) {
+              this.scale = MAX_VOXEL_SCALE;
+            }
             this.update();
             rescaleImport();
             resizeVoxelSound.play(voxelSizePlus);
@@ -630,7 +633,7 @@ var trackAsDelete = false;
 var trackAsRecolor = false;
 var trackAsEyedropper = false;
 
-var voxelToolSelected = true;
+var voxelToolSelected = false;
 var recolorToolSelected = false;
 var eyedropperToolSelected = false;
 var pasteMode = false;
@@ -848,7 +851,7 @@ function showPreviewLines() {
 }
 
 function showPreviewGuides() {
-    if (editToolsOn && !isImporting) {
+    if (editToolsOn && !isImporting && (voxelToolSelected || recolorToolSelected || eyedropperToolSelected)) {
         if (previewAsVoxel) {
             showPreviewVoxel();
             
@@ -964,7 +967,7 @@ function mousePressEvent(event) {
     
     if (clickedOverlay == voxelTool) {
         modeSwitchSound.play(0);
-        voxelToolSelected = true;
+        voxelToolSelected = !voxelToolSelected;
         recolorToolSelected = false;
         eyedropperToolSelected = false;
         moveTools();
@@ -972,7 +975,7 @@ function mousePressEvent(event) {
     } else if (clickedOverlay == recolorTool) {
         modeSwitchSound.play(1);
         voxelToolSelected = false;
-        recolorToolSelected = true;
+        recolorToolSelected = !recolorToolSelected;
         eyedropperToolSelected = false;
         moveTools();
         clickedOnSomething = true;
@@ -980,7 +983,7 @@ function mousePressEvent(event) {
         modeSwitchSound.play(2);
         voxelToolSelected = false;
         recolorToolSelected = false;
-        eyedropperToolSelected = true;
+        eyedropperToolSelected = !eyedropperToolSelected;
         moveTools();
         clickedOnSomething = true;
     } else if (scaleSelector.clicked(event.x, event.y)) {
@@ -1000,7 +1003,7 @@ function mousePressEvent(event) {
             }
         }
     }
-    if (clickedOnSomething || isImporting) {
+    if (clickedOnSomething || isImporting || (!voxelToolSelected && !recolorToolSelected && !eyedropperToolSelected)) {
         return; // no further processing
     }
     
@@ -1056,6 +1059,9 @@ function mousePressEvent(event) {
             lastVoxelPosition = { x: voxelDetails.x, y: voxelDetails.y, z: voxelDetails.z };
             lastVoxelColor = { red: newColor.red, green: newColor.green, blue: newColor.blue };
             lastVoxelScale = voxelDetails.s;
+            if (lastVoxelScale > MAX_VOXEL_SCALE) {
+              lastVoxelScale = MAX_VOXEL_SCALE; 
+            }
             
             addVoxelSound.playRandom();
             
@@ -1344,7 +1350,7 @@ function moveTools() {
         recolorToolOffset = 2;
     } else if (eyedropperToolSelected) {
         eyedropperToolOffset = 2;
-    } else {
+    } else if (voxelToolSelected) {
         if (pasteMode) {
             voxelToolColor = pasteModeColor;
         }

@@ -34,9 +34,11 @@
 #include <UUID.h>
 
 #include "Application.h"
+#include "AccountManager.h"
 #include "Menu.h"
 #include "scripting/MenuScriptingInterface.h"
 #include "Util.h"
+#include "ui/AnimationsDialog.h"
 #include "ui/AttachmentsDialog.h"
 #include "ui/InfoView.h"
 #include "ui/MetavoxelEditor.h"
@@ -193,12 +195,14 @@ Menu::Menu() :
                                   QAction::PreferencesRole);
 
     addActionToQMenuAndActionHash(editMenu, MenuOption::Attachments, 0, this, SLOT(editAttachments()));
-                                  
+    addActionToQMenuAndActionHash(editMenu, MenuOption::Animations, 0, this, SLOT(editAnimations()));
+
     addDisabledActionAndSeparator(editMenu, "Physics");
     QObject* avatar = appInstance->getAvatar();
-    addCheckableActionToQMenuAndActionHash(editMenu, MenuOption::ObeyEnvironmentalGravity, Qt::SHIFT | Qt::Key_G, false, 
+    addCheckableActionToQMenuAndActionHash(editMenu, MenuOption::ObeyEnvironmentalGravity, Qt::SHIFT | Qt::Key_G, false,
             avatar, SLOT(updateMotionBehaviorsFromMenu()));
-
+    addCheckableActionToQMenuAndActionHash(editMenu, MenuOption::StandOnNearbyFloors, 0, true,
+            avatar, SLOT(updateMotionBehaviorsFromMenu()));
 
     addAvatarCollisionSubMenu(editMenu);
 
@@ -327,7 +331,9 @@ Menu::Menu() :
 
     QMenu* avatarOptionsMenu = developerMenu->addMenu("Avatar Options");
 
+    addCheckableActionToQMenuAndActionHash(avatarOptionsMenu, MenuOption::AllowOculusCameraModeChange, 0, false);
     addCheckableActionToQMenuAndActionHash(avatarOptionsMenu, MenuOption::Avatars, 0, true);
+    addCheckableActionToQMenuAndActionHash(avatarOptionsMenu, MenuOption::AvatarsReceiveShadows, 0, true);
     addCheckableActionToQMenuAndActionHash(avatarOptionsMenu, MenuOption::RenderSkeletonCollisionShapes);
     addCheckableActionToQMenuAndActionHash(avatarOptionsMenu, MenuOption::RenderHeadCollisionShapes);
     addCheckableActionToQMenuAndActionHash(avatarOptionsMenu, MenuOption::RenderBoundingCollisionShapes);
@@ -411,7 +417,8 @@ Menu::Menu() :
                                            false,
                                            appInstance->getAudio(),
                                            SLOT(toggleToneInjection()));
-    addCheckableActionToQMenuAndActionHash(audioDebugMenu, MenuOption::AudioScope, Qt::CTRL | Qt::Key_P, false,
+    addCheckableActionToQMenuAndActionHash(audioDebugMenu, MenuOption::AudioScope, 
+                                           Qt::CTRL | Qt::Key_P, false,
                                            appInstance->getAudio(),
                                            SLOT(toggleScope()));
     addCheckableActionToQMenuAndActionHash(audioDebugMenu, MenuOption::AudioScopePause,
@@ -419,6 +426,33 @@ Menu::Menu() :
                                            false,
                                            appInstance->getAudio(),
                                            SLOT(toggleScopePause()));
+
+    QMenu* audioScopeMenu = audioDebugMenu->addMenu("Audio Scope Options");
+    addDisabledActionAndSeparator(audioScopeMenu, "Display Frames");
+    {
+        QAction *fiveFrames = addCheckableActionToQMenuAndActionHash(audioScopeMenu, MenuOption::AudioScopeFiveFrames,
+                                               0,
+                                               true,
+                                               appInstance->getAudio(),
+                                               SLOT(selectAudioScopeFiveFrames()));
+
+        QAction *twentyFrames = addCheckableActionToQMenuAndActionHash(audioScopeMenu, MenuOption::AudioScopeTwentyFrames,
+                                               0,
+                                               false,
+                                               appInstance->getAudio(),
+                                               SLOT(selectAudioScopeTwentyFrames()));
+
+        QAction *fiftyFrames = addCheckableActionToQMenuAndActionHash(audioScopeMenu, MenuOption::AudioScopeFiftyFrames,
+                                               0,
+                                               false,
+                                               appInstance->getAudio(),
+                                               SLOT(selectAudioScopeFiftyFrames()));
+
+        QActionGroup* audioScopeFramesGroup = new QActionGroup(audioScopeMenu);
+        audioScopeFramesGroup->addAction(fiveFrames);
+        audioScopeFramesGroup->addAction(twentyFrames);
+        audioScopeFramesGroup->addAction(fiftyFrames);
+    }
 
     QMenu* spatialAudioMenu = audioDebugMenu->addMenu("Spatial Audio");
 
@@ -862,6 +896,15 @@ void Menu::editAttachments() {
     }
 }
 
+void Menu::editAnimations() {
+    if (!_animationsDialog) {
+        _animationsDialog = new AnimationsDialog();
+        _animationsDialog->show();
+    } else {
+        _animationsDialog->close();
+    }
+}
+
 void Menu::goToDomain(const QString newDomain) {
     if (NodeList::getInstance()->getDomainHandler().getHostname() != newDomain) {
         // send a node kill request, indicating to other clients that they should play the "disappeared" effect
@@ -1013,24 +1056,24 @@ void Menu::multipleDestinationsDecision(const QJsonObject& userData, const QJson
 void Menu::muteEnvironment() {
     int headerSize = numBytesForPacketHeaderGivenPacketType(PacketTypeMuteEnvironment);
     int packetSize = headerSize + sizeof(glm::vec3) + sizeof(float);
-    
+
     glm::vec3 position = Application::getInstance()->getAvatar()->getPosition();
-    
+
     char* packet = (char*)malloc(packetSize);
     populatePacketHeader(packet, PacketTypeMuteEnvironment);
     memcpy(packet + headerSize, &position, sizeof(glm::vec3));
     memcpy(packet + headerSize + sizeof(glm::vec3), &MUTE_RADIUS, sizeof(float));
-    
+
     QByteArray mutePacket(packet, packetSize);
-    
+
     // grab our audio mixer from the NodeList, if it exists
     SharedNodePointer audioMixer = NodeList::getInstance()->soloNodeOfType(NodeType::AudioMixer);
-    
+
     if (audioMixer) {
         // send off this mute packet
         NodeList::getInstance()->writeDatagram(mutePacket, audioMixer);
     }
-    
+
     free(packet);
 }
 
@@ -1188,19 +1231,24 @@ void Menu::showScriptEditor() {
 }
 
 void Menu::showChat() {
-    QMainWindow* mainWindow = Application::getInstance()->getWindow();
-    if (!_chatWindow) {
-        _chatWindow = new ChatWindow(mainWindow);
-    }
-    if (_chatWindow->isHidden()) {
-        _chatWindow->show();
+    if (AccountManager::getInstance().isLoggedIn()) {
+        QMainWindow* mainWindow = Application::getInstance()->getWindow();
+        if (!_chatWindow) {
+            _chatWindow = new ChatWindow(mainWindow);
+        }
+
+        if (_chatWindow->isHidden()) {
+            _chatWindow->show();
+        }
+    } else {
+        Application::getInstance()->getTrayIcon()->showMessage("Interface", "You need to login to be able to chat with others on this domain.");
     }
 }
 
 void Menu::toggleChat() {
 #ifdef HAVE_QXMPP
     _chatAction->setEnabled(XmppClient::getInstance().getXMPPClient().isConnected());
-    if (!_chatAction->isEnabled() && _chatWindow) {
+    if (!_chatAction->isEnabled() && _chatWindow && AccountManager::getInstance().isLoggedIn()) {
         if (_chatWindow->isHidden()) {
             _chatWindow->show();
         } else {
