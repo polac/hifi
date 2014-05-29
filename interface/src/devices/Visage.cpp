@@ -118,6 +118,9 @@ void Visage::init() {
 
 void Visage::update() {
 #ifdef HAVE_VISAGE
+    if (!_enabled) {
+        return;
+    }
     _active = (_tracker->getTrackingData(_data) == TRACK_STAT_OK);
     if (!_active) {
         return;
